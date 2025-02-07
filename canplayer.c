@@ -63,6 +63,7 @@
 #define DEFAULT_LOOPS 1 /* only one replay */
 #define CHANNELS 20 /* anyone using more than 20 CAN interfaces at a time? */
 #define STDOUTIDX 65536 /* interface index for printing on stdout - bigger than max uint16 */
+#define DELTA_ERROR 10 /*percentage*/
 
 #if (IFNAMSIZ != 16)
 #error "IFNAMSIZ value does not to DEVSZ calculation!"
@@ -89,12 +90,6 @@ static struct assignment asgn[CHANNELS];
 const int canfx_on = 1;
 
 extern int optind, opterr, optopt;
-
-struct sleep {
-	struct timeval *sleep_vector;
-	size_t idx;
-	size_t size;
-};
 
 static void print_usage(char *prg)
 {
@@ -289,9 +284,8 @@ int main(int argc, char **argv)
 	int eof, txmtu, i, j;
 	char *fret;
 	unsigned long long sec, usec;
-	bool gap_from_file = false;
-	struct sleep timestamps;
-	struct timeval send_time, act_time, init_trace, init_time;
+	bool real_time = false;
+	struct timeval prec_time, rt_sleep, gap_time;
 
 	while ((opt = getopt(argc, argv, "I:l:tin:g:s:xvrh")) != -1) {
 		switch (opt) {
@@ -349,14 +343,7 @@ int main(int argc, char **argv)
 			break;
 
 		case 'r':
-			if (isatty(fileno(infile))) {
-				fprintf(stderr, "Specify an input file for option -r !\n");
-				exit(EXIT_FAILURE);
-			}
-			gap_from_file = true; /* using time delta from file */
-			init_trace.tv_sec = 0;
-			init_trace.tv_usec = 0;
-			timestamps.idx = 0; /*to avoid warning accessing idx variable*/
+			real_time = true; /* using time delta from file */
 			break;
 
 		case 'h':
@@ -391,11 +378,9 @@ int main(int argc, char **argv)
 		printf("interactive mode: press ENTER to process next CAN frame ...\n");
 	}
 
-	if (!gap_from_file) {
-		sleep_ts.tv_sec = gap / 1000;
-		sleep_ts.tv_nsec = (gap % 1000) * 1000000;
-	}
-
+	sleep_ts.tv_sec = gap / 1000;
+	sleep_ts.tv_nsec = (gap % 1000) * 1000000;
+	
 	/* open socket */
 	if ((s = socket(PF_CAN, SOCK_RAW, CAN_RAW)) < 0) {
 		perror("socket");
@@ -566,6 +551,8 @@ int main(int argc, char **argv)
 					break;
 				}
 
+				if (real_time) prec_time = log_tv;
+
 				if (sscanf(buf, "(%llu.%llu) %s %s", &sec, &usec, device, afrbuf) != 4) {
 					fprintf(stderr, "incorrect line format in logfile\n");
 					return 1;
@@ -573,24 +560,13 @@ int main(int argc, char **argv)
 				log_tv.tv_sec = sec;
 				log_tv.tv_usec = usec;
 
-				if (gap_from_file){
-					if (timestamps.idx == 0){
-						gettimeofday(&init_time, NULL);
-						if (log_tv.tv_sec > 0 || log_tv.tv_usec > 0)
-							init_trace = log_tv;
-					}
-					timersub(&log_tv, &init_trace, &send_time);
-
-					if (timestamps.idx > 0){
-						gettimeofday(&act_time, NULL);
-						timersub(&act_time, &init_time, &act_time);
-
-						while (timercmp(&act_time, &send_time, <)){
-							gettimeofday(&act_time, NULL);
-							timersub(&act_time, &init_time, &act_time);
-						}
-					}
-					timestamps.idx++;
+				if (real_time){
+					timersub(&log_tv, &prec_time, &gap_time);
+					rt_sleep.tv_sec = gap_time.tv_sec / 10;
+					rt_sleep.tv_usec = gap_time.tv_usec / 10;
+					timersub(&gap_time, &rt_sleep, &rt_sleep);
+					sleep_ts.tv_sec = rt_sleep.tv_sec;
+					sleep_ts.tv_nsec = rt_sleep.tv_usec * 1000;
 				}
 
 				/*
@@ -615,7 +591,7 @@ int main(int argc, char **argv)
 
 			} /* while frames_to_send ... */
 
-			if (!gap_from_file && nanosleep(&sleep_ts, NULL))
+			if (nanosleep(&sleep_ts, NULL))
 				return 1;
 
 			delay_loops++; /* private statistics */

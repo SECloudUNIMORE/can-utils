@@ -2,6 +2,17 @@
 <img src="https://github.com/linux-can/can-logos/raw/master/png/SocketCAN-logo-60dpi.png" alt="SocketCAN logo"/>
 </p>
 
+If you use any part of this repository, you are kindly invited to cite our work:
+```
+@inproceedings{zoccoli2024realcan,
+  title={Real-CAN: bringing real-time capabilities to canplayer},
+  author={Gambigliani Zoccoli, Giovanni and Stabili, Dario and Marchetti, Mirco},
+  booktitle={2024 IEEE 100th Vehicular Technology Conference (VTC2024-Fall)},
+  year={2024},
+  organization={IEEE}
+}
+```
+
 ### SocketCAN userspace utilities and tools
 
 This repository contains some userspace utilities for Linux CAN
